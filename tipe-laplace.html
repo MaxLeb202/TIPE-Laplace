@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>TIPE Maxime</title>
+	<meta charset="UTF-8"/>
+	<style>
+		body {
+			background-color: powderblue;
+		}
+		h1 {
+			color: blue;
+			text-align: center;
+		}
+		p {
+			color: red;
+		}
+		canvas {
+			border:1px solid #000000;
+			display: block;
+			margin: auto;
+		}
+		button {
+			display: block;
+			margin: auto;
+		}
+		label {
+			display: block;
+			text-align: center;
+			margin: auto;
+		}
+		input {
+			display: block;
+			margin: auto;
+		}
+	</style>
+	<script>
+		
+		function array2dCreate(iRows,iColumns) {
+			var myArray = new Array(iRows);
+			for (var iRow = 0; iRow < iRows; iRow++) {
+				myArray[iRow] = new Array(iColumns);
+			}
+			return myArray;
+		}
+		
+		function array3dCreate(iIndexes, iRows,iColumns) {
+			var myArray = new Array(iIndexes);
+			for (var iIndex = 0; iIndex < iIndexes; iIndex++) {
+				myArray[iIndex] = new Array(iRows);
+				for (var iRow = 0; iRow < iRows; iRow++) {
+					myArray[iIndex][iRow] = new Array(iColumns);
+				}
+			}
+			return myArray;
+		}
+		
+		function btnStart_OnClick () {
+			console.log("btnStart_OnClick()");
+			
+			// This code does not work: les boîtes restent remplies, il manque une sorte de "refresh"
+			document.getElementById("idIterations").value = "";
+			document.getElementById("idEpsilonFinal").value = "";
+			document.getElementById("idTimeFinal").value = "";
+			
+			var iStart = Date.now();
+			var iTimeout; // milliseconds
+			var vValue;
+			vValue = document.getElementById('idTimeout').value; // seconds
+			iTimeout = (!isNaN(Number.parseFloat(vValue))) ? Number.parseFloat(vValue) * 1000 : 20000; // 20 seconds by default
+			var nEpsilonLimit;
+			vValue = document.getElementById('idEpsilonLimit').value;
+			nEpsilonLimit = (!isNaN(Number.parseFloat(vValue))) ? Number.parseFloat(vValue) : 0; // 0 means no limit
+			
+			var myCanvas = document.getElementById('myCanvasId');
+			var myContext = myCanvas.getContext('2d');
+			var iCanvasWidth = myCanvas.width;
+			var iCanvasHeight = myCanvas.height;
+			var myCanvasData = myContext.getImageData(0, 0, iCanvasWidth, iCanvasHeight);
+			
+			// x et y commencent à 0
+			var xMax = iCanvasWidth; // pixels
+			var yMax = iCanvasHeight; // pixels
+			var vNuage; // Volts
+			vValue = document.getElementById('idvNuage').value;
+			vNuage = (!isNaN(Number.parseFloat(vValue))) ? Number.parseFloat(vValue) : -5000000; // - 5 000 000 volts by default
+			var vSol; // Volts
+			vValue = document.getElementById('idvSol').value;
+			vSol = (!isNaN(Number.parseFloat(vValue))) ? Number.parseFloat(vValue) : 5000000; // 5 000 000 volts by default
+			var vDef; // Volts
+			vValue = document.getElementById('idvDef').value;
+			vDef = (!isNaN(Number.parseFloat(vValue))) ? Number.parseFloat(vValue) : 0; // 0 volts by default
+			
+			var fixedArray = array2dCreate (xMax, yMax);
+			var potentialArray = array3dCreate (2, xMax, yMax);
+			
+			iIndexA = 0;
+			iIndexB = 1;
+			// Initialisation à vDef
+			// Dans les initialisations, on écrit toujours dans les 2 tableaux A et B pour avoir des valeurs lors du premier calcul à l'intérieur de la boucle
+			console.log("initialisation");
+			for (var x=0; x < xMax; x++) {
+				for (var y=0; y < yMax; y++) {
+					fixedArray[x][y] = false;
+					potentialArray[iIndexA][x][y] = vDef;
+					potentialArray[iIndexB][x][y] = vDef;
+				}
+			}
+			
+			// forme 1: ligne supérieure horizontale (y=100), avec potentiel à vNuage
+			// Dans les initialisations, on écrit toujours dans les 2 tableaux A et B pour avoir des valeurs lors du premier calcul à l'intérieur de la boucle
+			for (var x=0; x < xMax; x++) {
+				for (var y=0; y < 100; y++) {
+					fixedArray[x][y] = true;
+					potentialArray[iIndexA][x][y] = vNuage;
+					potentialArray[iIndexB][x][y] = vNuage;
+				}
+			}
+			
+			// forme 2: ligne inférieure horizontale avec un pic er un demi-cercle le tout au potentiel à vSol
+			// Dans les initialisations, on écrit toujours dans les 2 tableaux A et B pour avoir des valeurs lors du premier calcul à l'intérieur de la boucle
+			for (var x=0; x < xMax; x++) {
+				var yLimit;
+				if (x < 500) {
+					// Plat à yMax-50
+					yLimit = yMax - 50;
+				} else if ((x >= 500) && (x < 700)) {
+					// Montée demi-cercle, rayon = 100, (x0,y0) = (600, yMax-50) : y = y0 - racine(R²-(x-x0)²)
+					yLimit = Math.round(yMax - 50 - Math.sqrt(100**2 - (x - 600)**2));
+				} else if (x >= 700) {
+					// Plat à yMax-50
+					yLimit = yMax - 50;
+				}
+				// Remplissage de yMax jusqu'à yLimit
+				for (var y = yLimit; y < yMax; y++) {
+					fixedArray[x][y] = true;
+					potentialArray[iIndexA][x][y] = vSol;
+					potentialArray[iIndexB][x][y] = vSol;
+				}
+			}
+			
+			
+			// Calcul
+			/*
+				On échange entre les 2 tableaux (avec iIndexA et iIndexB) pour:
+				- limiter l'utilisation en mémoire (2 tableaux seulement)
+				- optimiser les performances en évitant les recopies d'un tableau vers un autre
+			*/
+			console.log("Calcul");
+			var nEpsilon;
+			var iIterations = 0;
+			var iTime;
+			
+			do {
+			 	iIterations++;
+			 	
+			 	nEpsilon = 0;
+			 	
+			 	// Calcul des 4 coins
+			 	x=0; y=0;
+				if (fixedArray[x][y]) {
+					// Fixed Array: no update
+				} else {
+					// Moyenne des 2 points autour du point concerné
+					potentialArray[iIndexB][x][y] =
+						( potentialArray[iIndexA][x+1][y]
+						+ potentialArray[iIndexA][x][y+1]
+						) / 2;
+					// Recherche du plus grand Epsilon
+					if (nEpsilon < Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y])) {
+						nEpsilon = Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y]);
+					}
+				}
+				
+			 	x=xMax-1; y=0;
+				if (fixedArray[x][y]) {
+					// Fixed Array: no update
+				} else {
+					// Moyenne des 2 points autour du point concerné
+					potentialArray[iIndexB][x][y] =
+						( potentialArray[iIndexA][x-1][y]
+						+ potentialArray[iIndexA][x][y+1]
+						) / 2;
+					// Recherche du plus grand Epsilon
+					if (nEpsilon < Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y])) {
+						nEpsilon = Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y]);
+					}
+				}
+				
+			 	x=0; y=yMax-1;
+				if (fixedArray[x][y]) {
+					// Fixed Array: no update
+				} else {
+					// Moyenne des 2 points autour du point concerné
+					potentialArray[iIndexB][x][y] =
+						( potentialArray[iIndexA][x+1][y]
+						+ potentialArray[iIndexA][x][y-1]
+						) / 2;
+					// Recherche du plus grand Epsilon
+					if (nEpsilon < Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y])) {
+						nEpsilon = Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y]);
+					}
+				}
+				
+			 	x=xMax-1; y=yMax-1;
+				if (fixedArray[x][y]) {
+					// Fixed Array: no update
+				} else {
+					// Moyenne des 2 points autour du point concerné
+					potentialArray[iIndexB][x][y] =
+						( potentialArray[iIndexA][x-1][y]
+						+ potentialArray[iIndexA][x][y-1]
+						) / 2;
+					// Recherche du plus grand Epsilon
+					if (nEpsilon < Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y])) {
+						nEpsilon = Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y]);
+					}
+				}
+				
+			 	// Calcul des côtés
+				y = 0;
+				for (var x=1; x < xMax-1; x++) {
+					if (fixedArray[x][y]) {
+						// Fixed Array: no update
+					} else {
+						// Moyenne des 4 points autour du point concerné
+						potentialArray[iIndexB][x][y] =
+							( potentialArray[iIndexA][x-1][y]
+							+ potentialArray[iIndexA][x+1][y]
+							+ potentialArray[iIndexA][x][y+1]
+							) / 3;
+						// Recherche du plus grand Epsilon
+						if (nEpsilon < Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y])) {
+							nEpsilon = Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y]);
+						}
+					}
+				}
+				y = yMax-1;
+				for (var x=1; x < xMax-1; x++) {
+					if (fixedArray[x][y]) {
+						// Fixed Array: no update
+					} else {
+						// Moyenne des 4 points autour du point concerné
+						potentialArray[iIndexB][x][y] =
+							( potentialArray[iIndexA][x-1][y]
+							+ potentialArray[iIndexA][x+1][y]
+							+ potentialArray[iIndexA][x][y-1]
+							) / 3;
+						// Recherche du plus grand Epsilon
+						if (nEpsilon < Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y])) {
+							nEpsilon = Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y]);
+						}
+					}
+				}
+				x=0;
+				for (var y=1; y < yMax-1; y++) {
+					if (fixedArray[x][y]) {
+						// Fixed Array: no update
+					} else {
+						// Moyenne des 4 points autour du point concerné
+						potentialArray[iIndexB][x][y] =
+							( potentialArray[iIndexA][x+1][y]
+							+ potentialArray[iIndexA][x][y-1]
+							+ potentialArray[iIndexA][x][y+1]
+							) / 3;
+						// Recherche du plus grand Epsilon
+						if (nEpsilon < Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y])) {
+							nEpsilon = Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y]);
+						}
+					}
+				}
+				x=xMax-1;
+				for (var y=1; y < yMax-1; y++) {
+					if (fixedArray[x][y]) {
+						// Fixed Array: no update
+					} else {
+						// Moyenne des 4 points autour du point concerné
+						potentialArray[iIndexB][x][y] =
+							( potentialArray[iIndexA][x-1][y]
+							+ potentialArray[iIndexA][x][y-1]
+							+ potentialArray[iIndexA][x][y+1]
+							) / 3;
+						// Recherche du plus grand Epsilon
+						if (nEpsilon < Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y])) {
+							nEpsilon = Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y]);
+						}
+					}
+				}
+
+			 	
+			 	
+			 	// Calcul général à l'intérieur du Canvas
+				for (var x=1; x < xMax-1; x++) {
+					for (var y=1; y < yMax-1; y++) {
+						if (fixedArray[x][y]) {
+							// Fixed Array: no update
+						} else {
+							// Moyenne des 4 points autour du point concerné
+							potentialArray[iIndexB][x][y] =
+								( potentialArray[iIndexA][x-1][y]
+								+ potentialArray[iIndexA][x+1][y]
+								+ potentialArray[iIndexA][x][y-1]
+								+ potentialArray[iIndexA][x][y+1]
+								) / 4;
+							// Recherche du plus grand Epsilon
+							if (nEpsilon < Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y])) {
+								nEpsilon = Math.abs(potentialArray[iIndexA][x][y] - potentialArray[iIndexB][x][y]);
+							}
+						}
+					}
+				}
+				
+				// Swap entre les 2 indexes de tableau: on évite la recopie de tableaux en permutant simplement les indexes (qui valent 0 ou 1)
+				iIndexA = 1 - iIndexA;
+				iIndexB = 1 - iIndexB;
+				
+				iTime = Date.now() - iStart;
+				
+				// On affiche dans la console toutes les 10 itérations
+			 	if (iIterations % 10 == 0) {
+					console.log("Iteration: " + iIterations + "; Remainder(sec) = " + Math.round((iTimeout - iTime) / 1000) + "; Epsilon = " + nEpsilon);
+				}
+			 	
+			} while ( (iTime < iTimeout) && (nEpsilon > nEpsilonLimit) );
+			
+			console.log("Iteration " + iIterations + "; nEpsilon=" + nEpsilon + "; iTime =" + iTime );
+			
+			// Extraction des données du tableau dans le textarea
+			var myText = '';
+			var myTextArea = document.getElementById('idTextArea');
+			for (var x=1; x < xMax-1; x=x+10) {
+				for (var y=1; y < yMax-1; y=y+10) {
+					myText = myText + '\t' + potentialArray[iIndexA][x][yMax-y].toLocaleString("en-US");
+				}
+				myText += '\n';
+			}
+			myTextArea.value = myText;
+
+
+/*			// Calcul du Champ Electrique au sommet du pic
+			// Sommet du pic en x = 300 et y = yMax - 50 - 150
+			iA = 300;
+			jA = yMax - 50 - 150;
+			var iA, jA, iB, jB;
+			var eI, eJ; // Composants du vecteur du Champ Electrique
+			eI = - (potentialArray[iIndexA][iA-1][jA] - potentialArray[iIndexA][iA+1][jA]) / 2;
+			eJ = (potentialArray[iIndexA][iA][jA-1] - potentialArray[iIndexA][iA][jA+1]) / 2;
+			iB = iA + eI;
+			jB = iA + eJ;
+			console.log("iA=" + iA + "; jA=" + jA + "; iB=" + iB + "; jB=" + jB);
+*/
+
+			// Calcul du Champ Electrique au sommet du triangle
+			// Sommet du triqnglz en x = 600 et y = yMax - 50 - 150
+			xA = 600;
+			yA = yMax - 50 - 100;
+			var xA, yA, xB, yB;
+			var eX, eY; // Composants du vecteur du Champ Electrique
+			eX = - (potentialArray[iIndexA][xA-1][yA] - potentialArray[iIndexA][xA+1][yA]) / 2;
+			eY = (potentialArray[iIndexA][xA][yA-1] - potentialArray[iIndexA][xA][yA+1]) / 2;
+			xB = xA + (eX/1000);
+			yB = yA + (eY/1000);
+			console.log("xA=" + xA + "; yA=" + yA + "; xB=" + xB + "; yB=" + yB);
+			
+			// Calcul des lignes de champ électrique
+			// Ce sera un tableau de 10 éléments, 1 élément étant une ligne
+			// Chaque ligne est un tableau de n éléments, 1 élément étant un point (x,y) (lui-même un tableau à 2 éléments), en utilisant "push()" pour ajouter un élément à la fin du tableau
+			// A la fin, on obtient un tableau de tableau de tableau
+			// Pour trouver le début de chaque ligne, on commence en bas, on monte verticalement et on cherche le premier fixedArray[x][y]==false
+			// On arrête le calcul de la ligne quand le point d'arrivée du segment tombe dans un fixedArray[x][y]==true (ou qu'on arrive hors tableau)
+			
+			// Le tableau de 10 lignes
+			var AllL = new Array(10); 
+			for (var iIndexAllL = 0 ; iIndexAllL < 10 ; iIndexAllL++) {
+				var xBase;
+				xBase = Math.round(iCanvasWidth * (iIndexAllL + 1) / 11); // +1 et 11 car il y a 11 intervalles pour avoir 10 lignes
+				
+				// Gestion d'une ligne
+				var x0, y0;
+				// L est le tableau représentant une seule ligne de champ, donc un tableau de tableaux
+				var L = new Array();
+				var uX, uY, U;
+				// On initialise x0 et y0 aux coordonnées du point initial
+				x0 = xBase;
+				y0 = iCanvasHeight - 50;
+				var x1, y1;
+				// y <= 100 est la zone du nuage, donc la zone d'arrêt
+				// les autres conditions du while sont des conditions d'arrêt pour être sûr que le programme s'arrête.
+				while ( (y0<iCanvasHeight-1) && (x0<iCanvasWidth-1) && (x0>0) && (y0>0) ) {
+					console.log("Calcul ligne de champ: x0=" + x0 + ", y0=" + y0);
+					
+					console.log("V1=" + potentialArray[iIndexA][x0-1][y0] + ", V2 =" + potentialArray[iIndexA][x0+1][y0] + ", V3=" + potentialArray[iIndexA][x0][y0-1] + ", V4=" + potentialArray[iIndexA][x0][y0+1]);
+
+					// uX et uY sont les composantes du champ électrique en (x0, y0)
+					uX = - (potentialArray[iIndexA][x0-1][y0] - potentialArray[iIndexA][x0+1][y0]) / 2;
+					uY = - (potentialArray[iIndexA][x0][y0-1] - potentialArray[iIndexA][x0][y0+1]) / 2;
+					// U est la norme du champ électrique donc diviser par U revient à avoir un segment de longueur 1,
+					// et multiplier le tout par 10 revient à avoir un segment de longueur 10
+					U = Math.sqrt ((uX)**2 + (uY)**2);
+					console.log("uX=" + uX + ", uY=" + uY);
+					x1 = x0+Math.round(10*uX/U);
+					y1 = y0+Math.round(10*uY/U);
+					L.push([x1, y1]);
+					x0 = x1;
+					y0 = y1;
+				}
+				
+				// On met la ligne dans le tableau de 10 lignes
+				AllL[iIndexAllL]=L;
+			}
+
+
+			// Final Display
+			console.log("Final Display");
+			
+			// Dessin des potentiels
+			for (var x=0; x < xMax; x++) {
+				// On commence à 1 à cause du calcul des lignes équipotentielles
+				for (var y=1; y < yMax; y++) {
+					var index = (y * iCanvasWidth + x) * 4;
+					if ((myCanvasData.data[index + 0] = 25 * Math.round( ( 255 * (potentialArray[iIndexA][x][y] - vNuage) / (vSol - vNuage) ) / 25 ))
+					!= (myCanvasData.data[index + 0] = 25 * Math.round( ( 255 * (potentialArray[iIndexA][x][y-1] - vNuage) / (vSol - vNuage) ) / 25 ))) {
+						// Equipotentielles en blanc
+						// RGBa convention
+						// R: Red from 0 to 255
+						myCanvasData.data[index + 0] = 255;
+						// G: Green from 0 to 255
+						myCanvasData.data[index + 1] = 255;
+						// B: Blue from 0 to 255
+						myCanvasData.data[index + 2] = 255;
+						// a: Opacity from 0 (transparent) to 255 (opaque)
+						myCanvasData.data[index + 3] = 255;
+					} else {
+						// RGBa convention
+						// R: Red from 0 to 255
+						myCanvasData.data[index + 0] = 25 * Math.round( ( 255 * (potentialArray[iIndexA][x][y] - vNuage) / (vSol - vNuage) ) / 25 );
+						// G: Green from 0 to 255
+						myCanvasData.data[index + 1] = 0;
+						// B: Blue from 0 to 255
+						myCanvasData.data[index + 2] = 0;
+						// a: Opacity from 0 (transparent) to 255 (opaque)
+						myCanvasData.data[index + 3] = 255;
+					}
+				}
+			}
+			
+			// Dessin des formes
+			for (var x=0; x < xMax; x++) {
+				for (var y=0; y < yMax; y++) {
+					if (fixedArray[x][y]) {
+						var index = (y * iCanvasWidth + x) * 4;
+						// RGBa convention	
+						// R: Red from 0 to 255
+						myCanvasData.data[index + 0] = 255 - myCanvasData.data[index + 0]; // on inverse les valeurs pour avoir vert au sol et jaune au nuage
+						// G: Green from 0 to 255
+						myCanvasData.data[index + 1] = 255;
+						// B: Blue from 0 to 255
+						myCanvasData.data[index + 2] = 0;
+						// a: Opacity from 0 (transparent) to 255 (opaque)
+						myCanvasData.data[index + 3] = 255;
+					}
+				}
+			}
+			myContext.putImageData(myCanvasData, 0, 0);
+
+			document.getElementById("idIterations").value = iIterations;
+			document.getElementById("idEpsilonFinal").value = nEpsilon;
+			document.getElementById("idTimeFinal").value = Math.round(iTime / 1000);
+			
+			// Dessin des lignes de champ électrique
+			// Pour chaque ligne, on dessine les segments d'un point à l'autre en bleu
+			myContext.beginPath();
+			// Affichage des 10 lignes
+			for (var iIndexAllL = 0; iIndexAllL < 10; iIndexAllL++) {
+				var L = AllL[iIndexAllL];
+				
+				// Boucle génératrice des segments successifs
+	 			myContext.moveTo(L[0][0], L[0][1]);
+	 			for(var i=1; i < L.length; i++) {
+					console.log("Affichage des Lignes de champ: L[" + i + "][0]=" + L[i][0] + ", L[" + i + "][1]=" + L[i][0]);
+	 				myContext.lineTo(L[i][0], L[i][1]);
+	 			}
+	 		}
+ 			// Affichage
+ 			myContext.strokeStyle = 'blue';
+ 			myContext.stroke();
+ 			
+ 			
+/*			// Dessin du vecteur du champ électrique
+			// var iA, jA, iB, jB; --> Définis plus haut, lors du calcul du Champ Electrique
+			var AiBj = Math.sqrt ((iB - iA)**2 + (jB - jA)**2);
+			var n = -(iB - iA) / (jB - jA);
+			var iE = (19 * iB + iA) /20;
+			var jE = (19 * jB + jA) / 20;
+			var iN = AiBj / (20 * Math.sqrt(1 + m**2));
+			var jN = n * iN;
+			var iC = iE + iN;
+			var jC = jE + jN;
+			var iD = iE - iN;
+			var jD = jE - jN;
+*/
+
+			// var xA, yA, xB, yB; --> Définis plus haut, lors du calcul du Champ Electrique
+			var AB = Math.sqrt ((xB - xA)**2 + (yB - yA)**2);
+			var m = -(xB - xA) / (yB - yA);
+			var xE = (19 * xB + xA) /20;
+			var yE = (19 * yB + yA) / 20;
+			var xN = AB / (20 * Math.sqrt(1 + m**2));
+			var yN = m * xN;
+			var xC = xE + xN;
+			var yC = yE + yN;
+			var xD = xE - xN;
+			var yD = yE - yN;
+
+/*
+			console.log("AiBj=" + AiBj + "; n=" + n + "; iE=" + iE + "; jE=" + jE + "; iN=" + iN + "; jN=" + jN + "; iC=" + iC + "; jC=" + jC + "; iD=" + iD + "; jD=" + jD);
+*/		
+			myContext.beginPath();
+			// Corps de la flèche
+ 			myContext.moveTo(xA, yA);
+ 			myContext.lineTo(xB, yB);
+ 			// Côté de pointe 1
+ 			myContext.moveTo(xB, yB);
+ 			myContext.lineTo(xC, yC);
+ 			// Côté de pointe 2
+ 			myContext.moveTo(xB, yB);
+ 			myContext.lineTo(xD, yD);
+ 			// Affichage
+ 			myContext.strokeStyle = 'black';
+ 			myContext.stroke();
+/*
+			myContext.beginPath();
+			// Corps de la flèche
+ 			myContext.moveTo(iA, jA);
+ 			myContext.lineTo(iB, jB);
+ 			// Côté de pointe 1
+ 			myContext.moveTo(iB, jB);
+ 			myContext.lineTo(iC, jC);
+ 			// Côté de pointe 2
+ 			myContext.moveTo(iB, jB);
+ 			myContext.lineTo(iD, jD);
+ 			// Affichage
+ 			myContext.strokeStyle = 'black';
+ 			myContext.stroke();
+*/
+			
+			console.log("Fin");
+		}
+		
+	</script>
+</head>
+<body>
+	<h1>
+		TIPE Foudre - Laplace<br/>
+		Maxime 2020-2021
+	</h1>
+	<label for="idTimeout">Timeout (secondes):</label><input type="text" id="idTimeout" value="300">
+	<label for="idvNuage">V Nuage (Volts):</label><input type="text" id="idvNuage" value="-5000000">
+	<label for="idvSol">V Sol (Volts):</label><input type="text" id="idvSol" value="5000000">
+	<label for="idvDef">V defaut (Volts):</label><input type="text" id="idvDef" value="0">
+	<label for="idEpsilonLimit">Epsilon limite:</label><input type="text" id="idEpsilonLimit" value="0">
+	<button id='btnStartId' type='button' onClick='btnStart_OnClick()'>Start</button>
+	<label for="idIterations">Nb itérations faites:</label><input type="text" id="idIterations" readonly>
+	<label for="idEpsilonFinal">Epsilon final:</label><input type="text" id="idEpsilonFinal" readonly>
+	<label for="idTimeFinal">Temps final:</label><input type="text" id="idTimeFinal" readonly>
+	<canvas id="myCanvasId" width="1200" height="600" align="center">
+		Your browser does not support canvas, so you won't see anything.
+	</canvas>
+	<textarea id="idTextArea" readonly></textarea>
+</body>
+</html>
+
